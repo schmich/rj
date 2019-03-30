@@ -8,12 +8,13 @@ Ruby JSON processor - https://github.com/schmich/rj
 
 Options:
   -f, --file <filename>     Process JSON data from <filename> (default: stdin)
-  -l, --lines               
+  -l, --lines
+  -c, --combine-lines
   -s, --script <filename>   Use <filename> as script to process input
   -j, --output-json         Output compact JSON (default)
   -p, --output-pretty       Output pretty-printed JSON
   -r, --output-raw          Output raw
-  -n, --output-none         Suppress output
+  -n, --output-none         Suppress default result output
   -v, --version             Show version
   -h, --help                Show this help
 EOF
@@ -22,6 +23,7 @@ end
 input = STDIN
 output = :json
 lines = false
+combine_lines = false
 script = 'j'
 data_filename = nil
 script_filename = nil
@@ -31,7 +33,11 @@ while args.any?
   arg = args.shift
   case arg.downcase
   when '--lines', '-l'
+    raise '--lines is incompatible with --combine-lines' if combine_lines
     lines = true
+  when '--combine-lines', '-c'
+    raise '--combine-lines is incompatible with --lines' if lines
+    combine_lines = true
   when '--output-pretty', '-p'
     output = :pretty
   when '--output-raw', '-r'
@@ -62,8 +68,7 @@ run_script = lambda { |json|
   # TODO: Support OpenStruct for .name access
   # TODO: Support :name symbol access
 
-  j = JSON.load(json, nil, quirks_mode: true)
-  result = eval(script, get_binding(j))
+  result = eval(script, get_binding(json))
 
   case output
   when :raw
@@ -86,14 +91,17 @@ if script_filename
 end
 
 if lines
-  begin
-    while input.readline
-      run_script.call($_)
-    end
-  rescue EOFError
-    # End of input.
-  end
+  while input.readline
+    json = JSON.load($_, nil, quirks_mode: true)
+    run_script.call(json)
+  end rescue EOFError
+elsif combine_lines
+  combined = []
+  while input.readline
+    combined << JSON.load($_, nil, quirks_mode: true)
+  end rescue EOFError
+  run_script.call(combined)
 else
-  # TODO: Handle JSON records (individual lines). Aggregate lines into array and pass to script.
-  run_script.call(input)
+  json = JSON.load(input, nil, quirks_mode: true)
+  run_script.call(json)
 end
